@@ -1,11 +1,13 @@
 """
 Customer-facing handlers for AzamAI Business Bot.
 Supports interactive service selection by number, viewing full service details,
-placing service booking inquiries with admin notifications, and AI assistant chat.
+submitting service booking inquiries with admin alerts, reading business news,
+viewing the business location and interactive map pin, and chatting with AI.
 """
 from datetime import datetime
 from html import escape
 import logging
+from zoneinfo import ZoneInfo
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -16,16 +18,19 @@ from sqlalchemy import select, func
 
 from app.config import settings
 from app.db import SessionLocal
-from app.models import Customer, Lead, ChatMessage, ServiceOrder
+from app.models import Customer, Lead, ChatMessage, ServiceOrder, Announcement
 from app.ai import ask_ai
 from app.keyboards import (
     main_keyboard,
     admin_keyboard,
     customer_service_detail_inline,
     customer_services_inline,
+    customer_location_inline,
     order_contact_keyboard,
 )
 from app import services_manager
+from app import location_manager
+from app.notifications import notify_new_customer, notify_new_order
 
 log = logging.getLogger(__name__)
 
@@ -42,20 +47,39 @@ class CustomerServiceFSM(StatesGroup):
 class CustomerOrderFSM(StatesGroup):
     entering_name = State()
     entering_phone = State()
+    entering_note = State()
 
 
 # ─────────────────────────────────────────────
-# Helpers
+# Registration Helper (notifies admin ONLY once for new users)
 # ─────────────────────────────────────────────
-async def register_customer(message: Message) -> None:
+async def register_customer(message: Message) -> Customer:
+    """
+    Registers the customer in PostgreSQL.
+    Triggers notify_new_customer ONLY when a genuinely new customer is created.
+    """
     async with SessionLocal() as db:
         row = await db.scalar(select(Customer).where(Customer.telegram_id == message.from_user.id))
+        is_new = False
         if row is None:
+            is_new = True
             row = Customer(telegram_id=message.from_user.id)
             db.add(row)
+
         row.full_name = message.from_user.full_name or ""
         row.username = message.from_user.username or ""
         await db.commit()
+        await db.refresh(row)
+
+        if is_new:
+            total_customers = await db.scalar(select(func.count()).select_from(Customer)) or 1
+            # Trigger admin notification
+            try:
+                await notify_new_customer(message.bot, row, total_customers)
+            except Exception as exc:
+                log.warning("Could not send new customer notification: %s", exc)
+
+        return row
 
 
 def _get_number_emoji(n: int) -> str:
@@ -100,23 +124,6 @@ def _format_service_detail(s: dict) -> str:
     return text.strip()
 
 
-async def _notify_admins_new_order(bot, order_data: dict) -> None:
-    text = (
-        "🔔 <b>Yangi xizmat buyurtmasi</b>\n\n"
-        f"👤 <b>Mijoz:</b> {escape(order_data['name'])}\n"
-        f"📞 <b>Telefon:</b> {escape(order_data['phone'])}\n"
-        f"💅 <b>Xizmat:</b> {escape(order_data['service_name'])}\n"
-        f"💰 <b>Narxi:</b> {escape(order_data['service_price'])}\n"
-        f"🕒 <b>Vaqti:</b> {escape(order_data['created_at'])}\n"
-        f"🆔 <b>Telegram ID:</b> <code>{order_data['telegram_id']}</code>"
-    )
-    for admin_id in settings.admins:
-        try:
-            await bot.send_message(admin_id, text, parse_mode="HTML")
-        except Exception as exc:
-            log.warning("Could not notify admin %s: %s", admin_id, exc)
-
-
 # ─────────────────────────────────────────────
 # /start
 # ─────────────────────────────────────────────
@@ -129,8 +136,8 @@ async def start(message: Message, state: FSMContext) -> None:
     if message.from_user.id in settings.admins:
         await message.answer(
             f"👨‍💼 Admin sifatida xush kelibsiz!\n"
-            f"Biznes: <b>{escape(biz.get('name', ''))}</b>\n"
-            f"Admin panelini ochish uchun quyidagi tugmalardan foydalaning:",
+            f"Biznes: <b>{escape(biz.get('name', ''))}</b>\n\n"
+            "Admin panelini boshqarish uchun quyidagi tugmalardan foydalaning:",
             reply_markup=admin_keyboard(),
             parse_mode="HTML",
         )
@@ -138,7 +145,7 @@ async def start(message: Message, state: FSMContext) -> None:
         await message.answer(
             f"Assalomu alaykum! 👋\n"
             f"Men <b>{escape(biz.get('name', ''))}</b> virtual yordamchisiman.\n"
-            f"Quyidagi menyu orqali xizmatlar bilan tanishishingiz yoki savolingizni yozishingiz mumkin.",
+            f"Quyidagi menyu orqali xizmatlar bilan tanishishingiz, yangiliklarni o'qishingiz yoki savolingizni yozishingiz mumkin.",
             reply_markup=main_keyboard(),
             parse_mode="HTML",
         )
@@ -229,7 +236,6 @@ async def process_service_number_selection(message: Message, state: FSMContext) 
                 reply_markup=customer_service_detail_inline(srv["id"]),
             )
         else:
-            # Invalid number error
             await message.answer(
                 f"⚠️ <b>Noto'g'ri xizmat raqami kiritildi.</b>\n\n"
                 f"Mavjud xizmatlar: <b>1</b> dan <b>{total}</b> gacha.\n"
@@ -248,6 +254,16 @@ async def process_service_number_selection(message: Message, state: FSMContext) 
         )
         return
 
+    if raw in ["📰 Yangiliklar"]:
+        await state.clear()
+        await customer_news(message)
+        return
+
+    if raw in ["📍 Manzilimiz"]:
+        await state.clear()
+        await customer_location(message)
+        return
+
     if raw in ["👨‍💼 Operator", "👨‍💼 Operator bilan bog'lanish"]:
         await state.clear()
         biz = services_manager.load_business()
@@ -259,9 +275,82 @@ async def process_service_number_selection(message: Message, state: FSMContext) 
         await message.answer("Xizmat tanlash bekor qilindi.", reply_markup=main_keyboard())
         return
 
-    # User asked a normal question — clear state and pass directly to AI chat!
+    # User asked a normal question — clear state and pass directly to AI chat
     await state.clear()
     await ai_chat(message, state)
+
+
+# ─────────────────────────────────────────────
+# 📰 Customer: Business News & Announcements
+# ─────────────────────────────────────────────
+@router.message(F.text == "📰 Yangiliklar")
+async def customer_news(message: Message) -> None:
+    await register_customer(message)
+    now = datetime.now(ZoneInfo(settings.timezone))
+
+    async with SessionLocal() as db:
+        announcements = (
+            await db.scalars(
+                select(Announcement)
+                .where(Announcement.is_published == True)
+                .order_by(Announcement.id.desc())
+                .limit(5)
+            )
+        ).all()
+
+    # Filter out expired announcements
+    active_news = []
+    for a in announcements:
+        if a.expires_at and a.expires_at < now:
+            continue
+        active_news.append(a)
+
+    if not active_news:
+        await message.answer("Hozircha yangi yangiliklar mavjud emas.", reply_markup=main_keyboard())
+        return
+
+    await message.answer("📰 <b>So‘nggi yangiliklar va e'lonlar:</b>\n", parse_mode="HTML")
+
+    for a in active_news:
+        exp_str = f"\n📅 <i>Amal qilish muddati: {a.expires_at.strftime('%d.%m.%Y')} gacha</i>" if a.expires_at else ""
+        caption = (
+            f"🎉 <b>{escape(a.title)}</b>\n\n"
+            f"{escape(a.text)}"
+            f"{exp_str}"
+        )
+        if a.photo_file_id:
+            try:
+                await message.answer_photo(photo=a.photo_file_id, caption=caption, parse_mode="HTML")
+            except Exception:
+                await message.answer(caption, parse_mode="HTML")
+        else:
+            await message.answer(caption, parse_mode="HTML")
+
+
+# ─────────────────────────────────────────────
+# 📍 Customer: Business Location & Map
+# ─────────────────────────────────────────────
+@router.message(F.text == "📍 Manzilimiz")
+async def customer_location(message: Message) -> None:
+    await register_customer(message)
+    loc = await location_manager.get_location()
+
+    text = location_manager.format_customer_location_text(loc)
+    has_coords = bool(loc and loc.latitude is not None and loc.longitude is not None)
+    maps_url = loc.google_maps_url if loc else None
+
+    kb = customer_location_inline(maps_url, has_coords)
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "send_map_pin")
+async def customer_send_map_pin_cb(cb: CallbackQuery) -> None:
+    loc = await location_manager.get_location()
+    if loc and loc.latitude is not None and loc.longitude is not None:
+        await cb.message.answer_location(latitude=loc.latitude, longitude=loc.longitude)
+        await cb.answer()
+    else:
+        await cb.answer("Xarita koordinatalari topilmadi.", show_alert=True)
 
 
 # ─────────────────────────────────────────────
@@ -324,7 +413,13 @@ async def order_process_name(message: Message, state: FSMContext) -> None:
 @router.message(CustomerOrderFSM.entering_phone, F.contact)
 async def order_process_contact(message: Message, state: FSMContext) -> None:
     phone = message.contact.phone_number
-    await _complete_order(message, state, phone)
+    await state.update_data(order_phone=phone)
+    await state.set_state(CustomerOrderFSM.entering_note)
+    await message.answer(
+        "3️⃣ Buyurtmaga qo'shimcha izoh yoki xohlagan vaqtingizni yozing:\n"
+        "<i>(Masalan: Soat 15:00 ga yozilmoqchiman. O'tkazib yuborish uchun «-» yozing)</i>",
+        parse_mode="HTML",
+    )
 
 
 @router.message(CustomerOrderFSM.entering_phone)
@@ -344,16 +439,30 @@ async def order_process_phone_text(message: Message, state: FSMContext) -> None:
         )
         return
 
-    await _complete_order(message, state, raw)
+    await state.update_data(order_phone=raw)
+    await state.set_state(CustomerOrderFSM.entering_note)
+    await message.answer(
+        "3️⃣ Buyurtmaga qo'shimcha izoh yoki xohlagan vaqtingizni yozing:\n"
+        "<i>(Masalan: Soat 15:00 ga yozilmoqchiman. O'tkazib yuborish uchun «-» yozing)</i>",
+        parse_mode="HTML",
+    )
 
 
-async def _complete_order(message: Message, state: FSMContext, phone: str) -> None:
+@router.message(CustomerOrderFSM.entering_note)
+async def order_process_note(message: Message, state: FSMContext) -> None:
+    raw = message.text.strip() if message.text else ""
+    if raw == "/cancel":
+        await state.clear()
+        await message.answer("Buyurtma bekor qilindi.", reply_markup=main_keyboard())
+        return
+
+    note = "" if raw == "-" else raw
     data = await state.get_data()
     name = data.get("order_name") or message.from_user.full_name or "Mijoz"
+    phone = data.get("order_phone", "")
     srv_id = data.get("order_srv_id", "")
     srv_name = data.get("order_srv_name", "Xizmat")
     srv_price = data.get("order_srv_price", "—")
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     async with SessionLocal() as db:
         order = ServiceOrder(
@@ -363,36 +472,36 @@ async def _complete_order(message: Message, state: FSMContext, phone: str) -> No
             service_id=srv_id,
             service_name=srv_name,
             service_price=srv_price,
+            note=note,
             status="yangi",
         )
         db.add(order)
         # Also ensure lead table has this contact
         db.add(Lead(telegram_id=message.from_user.id, name=name, phone=phone))
         await db.commit()
+        await db.refresh(order)
 
     await state.clear()
 
+    note_line = f"\n📝 <b>Izoh:</b> {escape(note)}" if note else ""
     await message.answer(
         "✅ <b>Buyurtmangiz muvaffaqiyatli qabul qilindi!</b>\n\n"
-        f"💅 <b>Xizmat:</b> {escape(srv_name)}\n"
+        f"🆔 <b>Buyurtma ID:</b> #{order.id}\n"
+        f"💇 <b>Xizmat:</b> {escape(srv_name)}\n"
         f"💰 <b>Narxi:</b> {escape(srv_price)}\n"
         f"👤 <b>Buyurtmachi:</b> {escape(name)}\n"
-        f"📞 <b>Telefon:</b> {escape(phone)}\n\n"
+        f"📞 <b>Telefon:</b> {escape(phone)}"
+        f"{note_line}\n\n"
         "Tez orada mutaxassisimiz siz bilan bog'lanadi. Rahmat!",
         parse_mode="HTML",
         reply_markup=main_keyboard(),
     )
 
-    # Notify admins
-    order_info = {
-        "name": name,
-        "phone": phone,
-        "service_name": srv_name,
-        "service_price": srv_price,
-        "created_at": now_str,
-        "telegram_id": message.from_user.id,
-    }
-    await _notify_admins_new_order(message.bot, order_info)
+    # Real-time admin notification
+    try:
+        await notify_new_order(message.bot, order)
+    except Exception as exc:
+        log.warning("Could not send admin new order notification: %s", exc)
 
 
 # ─────────────────────────────────────────────
@@ -430,7 +539,7 @@ async def contact(message: Message) -> None:
 
 
 # ─────────────────────────────────────────────
-# /stats (Legacy Admin Command)
+# /stats & /leads (Legacy Admin Commands preserved)
 # ─────────────────────────────────────────────
 @router.message(Command("stats"))
 async def stats(message: Message) -> None:
@@ -443,9 +552,6 @@ async def stats(message: Message) -> None:
     await message.answer(f"📊 Mijozlar: {users or 0}\nKontaktlar: {leads or 0}\nBuyurtmalar: {orders or 0}")
 
 
-# ─────────────────────────────────────────────
-# /leads (Legacy Admin Command)
-# ─────────────────────────────────────────────
 @router.message(Command("leads"))
 async def leads(message: Message) -> None:
     if message.from_user.id not in settings.admins:

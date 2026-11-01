@@ -11,6 +11,7 @@ def main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📋 Xizmatlar"), KeyboardButton(text="👨‍💼 Operator")],
+            [KeyboardButton(text="📰 Yangiliklar"), KeyboardButton(text="📍 Manzilimiz")],
             [KeyboardButton(text="📞 Telefon raqamni yuborish", request_contact=True)],
         ],
         resize_keyboard=True,
@@ -43,12 +44,7 @@ def customer_service_detail_inline(service_id: str) -> InlineKeyboardMarkup:
 
 
 def customer_services_inline(services: list[dict]) -> InlineKeyboardMarkup:
-    """
-    Inline buttons for interactive service selection.
-    Customer can either tap an inline button or type the number in chat.
-    """
     buttons = []
-    # Display 2 services per row for clean readability
     row = []
     for i, s in enumerate(services, 1):
         btn_text = f"{i}️⃣ {s['name']}"
@@ -61,16 +57,26 @@ def customer_services_inline(services: list[dict]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def customer_location_inline(google_maps_url: str | None, has_coords: bool) -> InlineKeyboardMarkup:
+    """Buttons shown under customer location message."""
+    buttons = []
+    if google_maps_url and (google_maps_url.startswith("http://") or google_maps_url.startswith("https://")):
+        buttons.append([InlineKeyboardButton(text="🗺 Google Maps orqali ochish", url=google_maps_url)])
+    if has_coords:
+        buttons.append([InlineKeyboardButton(text="📍 Lokatsiyani yuborish", callback_data="send_map_pin")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 # ─────────────────────────────────────────────
 # Admin main menu keyboard
 # ─────────────────────────────────────────────
 def admin_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📊 Statistika"), KeyboardButton(text="👥 Mijozlar")],
-            [KeyboardButton(text="📥 Kontaktlar"), KeyboardButton(text="📋 Xizmatlar ro'yxati")],
-            [KeyboardButton(text="➕ Yangi xizmat qo'shish"), KeyboardButton(text="✏️ Xizmatni tahrirlash")],
-            [KeyboardButton(text="🗑 Xizmatni o'chirish"), KeyboardButton(text="👁 Xizmatni yoqish/o'chirish")],
+            [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="👥 Mijozlar")],
+            [KeyboardButton(text="📥 Buyurtmalar"), KeyboardButton(text="📋 Xizmatlar")],
+            [KeyboardButton(text="📰 Yangiliklar"), KeyboardButton(text="📍 Manzil va xarita")],
+            [KeyboardButton(text="📢 Barchaga xabar yuborish")],
             [KeyboardButton(text="⚙️ Biznes sozlamalari"), KeyboardButton(text="👤 Mijoz rejimi")],
         ],
         resize_keyboard=True,
@@ -78,10 +84,170 @@ def admin_keyboard() -> ReplyKeyboardMarkup:
 
 
 # ─────────────────────────────────────────────
-# Admin inline keyboards
+# Reports inline keyboards
+# ─────────────────────────────────────────────
+def reports_periods_inline() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📅 Bugungi hisobot", callback_data="rep_today"),
+                InlineKeyboardButton(text="📅 Haftalik hisobot", callback_data="rep_week"),
+            ],
+            [
+                InlineKeyboardButton(text="📅 Oylik hisobot", callback_data="rep_month"),
+                InlineKeyboardButton(text="📊 Umumiy hisobot", callback_data="rep_all"),
+            ],
+            [
+                InlineKeyboardButton(text="🔄 Yangilash", callback_data="rep_refresh"),
+            ]
+        ]
+    )
+
+
+# ─────────────────────────────────────────────
+# Location inline keyboards
+# ─────────────────────────────────────────────
+def admin_location_menu_inline(has_coords: bool, has_url: bool) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="🏢 Manzilni o'zgartirish", callback_data="loc_edit_address"),
+            InlineKeyboardButton(text="ℹ️ Mo'ljalni kiritish", callback_data="loc_edit_landmark"),
+        ],
+        [
+            InlineKeyboardButton(text="📍 Telegram lokatsiya yuborish", callback_data="loc_prompt_pin"),
+            InlineKeyboardButton(text="🌐 Koordinata kiritish", callback_data="loc_edit_coords"),
+        ],
+        [
+            InlineKeyboardButton(text="🗺 Google Maps havolasi", callback_data="loc_edit_url"),
+            InlineKeyboardButton(text="👁 Mijoz ko'rinishida sinash", callback_data="loc_preview_customer"),
+        ],
+        [
+            InlineKeyboardButton(text="🗑 Lokatsiyani tozalash", callback_data="loc_clear_prompt"),
+            InlineKeyboardButton(text="🔙 Admin menyu", callback_data="loc_cancel"),
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def confirm_clear_location_inline() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🗑 Ha, tozalash", callback_data="loc_clear_confirm"),
+                InlineKeyboardButton(text="❌ Bekor qilish", callback_data="loc_cancel"),
+            ]
+        ]
+    )
+
+
+# ─────────────────────────────────────────────
+# News & Announcements inline keyboards
+# ─────────────────────────────────────────────
+def admin_news_menu_inline() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Yangi e'lon yaratish", callback_data="news_create_new")],
+            [InlineKeyboardButton(text="📋 Barcha e'lonlar", callback_data="news_list_all")],
+            [InlineKeyboardButton(text="📢 Barchaga xabar yuborish", callback_data="news_broadcast_menu")],
+            [InlineKeyboardButton(text="🔙 Admin menyu", callback_data="svc_cancel")],
+        ]
+    )
+
+
+def news_preview_inline() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Barchaga yuborish", callback_data="news_action_broadcast")],
+            [InlineKeyboardButton(text="💾 Qoralama sifatida saqlash", callback_data="news_action_draft")],
+            [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="news_action_cancel")],
+        ]
+    )
+
+
+def news_item_actions_inline(announcement_id: int, is_published: bool) -> InlineKeyboardMarkup:
+    toggle_text = "🔴 Bekor qilish (yashirish)" if is_published else "🟢 Chop etish"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📢 Barchaga yuborish", callback_data=f"news_send_all_{announcement_id}")],
+            [
+                InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"news_edit_{announcement_id}"),
+                InlineKeyboardButton(text=toggle_text, callback_data=f"news_toggle_{announcement_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="🗑 O'chirish", callback_data=f"news_del_{announcement_id}"),
+                InlineKeyboardButton(text="🔙 Ro'yxatga qaytish", callback_data="news_list_all"),
+            ]
+        ]
+    )
+
+
+def confirm_delete_news_inline(announcement_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🗑 Ha, o'chirish", callback_data=f"news_confirm_del_{announcement_id}"),
+                InlineKeyboardButton(text="❌ Bekor qilish", callback_data="news_list_all"),
+            ]
+        ]
+    )
+
+
+def confirm_broadcast_inline(announcement_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📢 Ha, hozir yuborilsin!", callback_data=f"news_confirm_send_{announcement_id}"),
+                InlineKeyboardButton(text="❌ Bekor qilish", callback_data="news_list_all"),
+            ]
+        ]
+    )
+
+
+# ─────────────────────────────────────────────
+# Orders management inline keyboards
+# ─────────────────────────────────────────────
+def order_action_inline(order_id: int, telegram_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Qabul qilish", callback_data=f"ord_acc_{order_id}"),
+                InlineKeyboardButton(text="❌ Rad etish", callback_data=f"ord_rej_{order_id}"),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💬 Mijoz bilan bog'lanish",
+                    url=f"tg://user?id={telegram_id}",
+                )
+            ],
+            [InlineKeyboardButton(text="🔙 Buyurtmalar ro'yxati", callback_data="orders_list_page_0")]
+        ]
+    )
+
+
+def orders_filter_inline(current_filter: str = "all") -> InlineKeyboardMarkup:
+    filters = [
+        ("Barchasi", "all"),
+        ("⏳ Kutilayotgan", "pending"),
+        ("✅ Qabul qilingan", "accepted"),
+        ("❌ Rad etilgan", "rejected"),
+    ]
+    buttons = []
+    row = []
+    for label, key in filters:
+        text = f"• {label} •" if key == current_filter else label
+        row.append(InlineKeyboardButton(text=text, callback_data=f"ord_filter_{key}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# ─────────────────────────────────────────────
+# Services & general admin inline keyboards
 # ─────────────────────────────────────────────
 def admin_services_list_inline(services: list[dict]) -> InlineKeyboardMarkup:
-    """Shows all services with active/inactive indicators for admin inspection."""
     buttons = []
     for i, s in enumerate(services, 1):
         status = "🟢" if s.get("is_active", True) else "🔴"
@@ -95,7 +261,6 @@ def admin_services_list_inline(services: list[dict]) -> InlineKeyboardMarkup:
 
 
 def admin_service_actions_inline(service_id: str, is_active: bool) -> InlineKeyboardMarkup:
-    """Actions when viewing a specific service in admin panel."""
     toggle_text = "🔴 Nofaol qilish" if is_active else "🟢 Faollashtirish"
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -112,7 +277,6 @@ def admin_service_actions_inline(service_id: str, is_active: bool) -> InlineKeyb
 
 
 def services_inline(services: list[dict], action: str) -> InlineKeyboardMarkup:
-    """General service selection list for admin: action = 'edit' | 'delete' | 'toggle'"""
     buttons = []
     for i, s in enumerate(services, 1):
         status = "🟢" if s.get("is_active", True) else "🔴"
@@ -127,7 +291,6 @@ def services_inline(services: list[dict], action: str) -> InlineKeyboardMarkup:
 
 
 def edit_fields_inline(service_id: str) -> InlineKeyboardMarkup:
-    """Field selection for editing a service."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -158,7 +321,6 @@ def confirm_delete_inline(service_id: str) -> InlineKeyboardMarkup:
 
 
 def confirm_add_inline() -> InlineKeyboardMarkup:
-    """Confirm or cancel adding a new service."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="✅ Saqlash", callback_data="add_svc_confirm"),

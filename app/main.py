@@ -8,6 +8,7 @@ from app.config import settings
 from app.db import init_db
 from app.admin_handlers import admin_router
 from app.handlers import router
+from app.reports import daily_report_scheduler
 
 
 async def main():
@@ -17,14 +18,16 @@ async def main():
     )
     await init_db()
     bot = Bot(token=settings.bot_token)
-    # MemoryStorage: FSM state is lost on restart (acceptable for admin flows).
-    # Admins will simply re-start any interrupted operation after a restart.
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
-    # Admin router must be registered FIRST so its handlers take priority
-    # over the customer router for shared button texts (e.g. "📋 Xizmatlar").
+
+    # Admin router registered first so admin actions take precedence
     dp.include_router(admin_router)
     dp.include_router(router)
+
+    # Launch background daily report scheduler (runs non-blocking)
+    asyncio.create_task(daily_report_scheduler(bot))
+
     await dp.start_polling(bot)
 
 
