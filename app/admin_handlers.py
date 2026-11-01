@@ -15,7 +15,7 @@ from math import ceil
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import BaseFilter, Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
@@ -56,6 +56,18 @@ from app.notifications import notify_customer_order_status
 log = logging.getLogger(__name__)
 
 admin_router = Router()
+
+
+# ─────────────────────────────────────────────
+# Global admin filter: only admin users' messages are routed here.
+# Non-admin messages pass through to the customer router.
+# ─────────────────────────────────────────────
+class IsAdminFilter(BaseFilter):
+    async def __call__(self, message: Message) -> bool:
+        return message.from_user.id in settings.admins
+
+
+admin_router.message.filter(IsAdminFilter())
 
 PAGE_SIZE = 10
 
