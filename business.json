@@ -1,0 +1,62 @@
+{
+  "name": "Miss Yulduz Beauty Studio",
+  "description": "Toshkent shahridagi go'zallik saloni. Mijozlarga qulay va sifatli xizmat ko'rsatamiz.",
+  "services": [
+    {
+      "id": "srv_1",
+      "name": "Manikyur",
+      "price": "120 000 so'mdan",
+      "duration": "60 daqiqa",
+      "description": "Klassik va apparatli manikyur. Tirnoqlarni tozalash, chiroyli shakl berish va kutikulaga professional ishlov berish.",
+      "additional_info": "Steril va bir martalik vositalardan foydalaniladi.",
+      "is_active": true,
+      "created_at": "2026-10-31 18:00",
+      "updated_at": "2026-10-31 18:00"
+    },
+    {
+      "id": "srv_2",
+      "name": "Gel lak",
+      "price": "150 000 so'mdan",
+      "duration": "90 daqiqa",
+      "description": "Yuqori sifatli gel lak qoplamasi, tirnoq plastinkasini mustahkamlash va keng ranglar palitrasi.",
+      "additional_info": "Qoplama 3-4 hafta davomida o'z sifatini yo'qotmaydi.",
+      "is_active": true,
+      "created_at": "2026-10-31 18:00",
+      "updated_at": "2026-10-31 18:00"
+    },
+    {
+      "id": "srv_3",
+      "name": "Soch bo'yash",
+      "price": "250 000 so'mdan",
+      "duration": "2-3 soat",
+      "description": "Professional soch bo'yash, ombre, balayaj, melirovanie va individual rang tanlash xizmati.",
+      "additional_info": "Sochni asrovchi va yaltiroqlik beruvchi sifatli bo'yoqlar qo'llaniladi.",
+      "is_active": true,
+      "created_at": "2026-10-31 18:00",
+      "updated_at": "2026-10-31 18:00"
+    },
+    {
+      "id": "srv_4",
+      "name": "Qosh dizayni",
+      "price": "70 000 so'mdan",
+      "duration": "30 daqiqa",
+      "description": "Yuz tuzilishiga mos qosh shaklini aniqlash, ortiqcha tuklarni terish hamda xina yoki bo'yoq bilan bo'yash.",
+      "additional_info": "Uzoq muddatli va tabiiy ko'rinish beradi.",
+      "is_active": true,
+      "created_at": "2026-10-31 18:00",
+      "updated_at": "2026-10-31 18:00"
+    }
+  ],
+  "faq": [
+    {
+      "q": "Ish vaqti qanday?",
+      "a": "Har kuni 09:00 dan 20:00 gacha."
+    },
+    {
+      "q": "Qayerda joylashgansiz?",
+      "a": "Toshkent shahrida. Aniq manzilni administrator tasdiqlaydi."
+    }
+  ],
+  "handoff_text": "@starbeauty_uz",
+  "system_rules": "Narxlarni faqat xizmatlar ro'yxatidan ayt. Bo'sh vaqt, chegirma yoki manzilni o'ylab topma. Bilmasang administratorga yo'naltir."
+}
